@@ -48,6 +48,7 @@ public class AnnotationScanner {
      */
     public List<TestInfoRecord> discoverAnnotations(Path classpath, String packageFilter) {
         List<TestInfoRecord> records = new ArrayList<>();
+        Set<String> processedClasses = new HashSet<>();
 
         try (ScanResult scanResult = new ClassGraph()
                 .overrideClasspath(classpath.toFile())
@@ -56,7 +57,7 @@ public class AnnotationScanner {
                 .enableAnnotationInfo()
                 .scan()) {
 
-            // Get all classes with @TestInfo annotation (includes inherited annotations)
+            // First, get all classes with @TestInfo annotation (directly annotated)
             for (ClassInfo classInfo : scanResult.getClassesWithAnnotation(TestInfo.class.getName())) {
                 String className = classInfo.getName();
 
@@ -65,46 +66,84 @@ public class AnnotationScanner {
                     continue;
                 }
 
-                // Check for class-level annotation
-                if (classInfo.hasAnnotation(TestInfo.class.getName())) {
-                    TestInfo annotation = extractAnnotation(classInfo);
-                    if (annotation != null) {
-                        records.add(new TestInfoRecord(
-                                className,
-                                "", // blank TEST_NAME for class-level
-                                annotation.type(),
-                                annotation.team(),
-                                annotation.criticality(),
-                                arrayToString(annotation.tags())
-                        ));
-                    }
+                processClass(classInfo, records, processedClasses);
+            }
+
+            // Second, scan all classes to find those that inherit @TestInfo from parent
+            for (ClassInfo classInfo : scanResult.getAllClasses()) {
+                String className = classInfo.getName();
+
+                // Skip if already processed
+                if (processedClasses.contains(className)) {
+                    continue;
                 }
 
-                // Check for method-level annotations (including inherited methods)
-                Set<String> processedMethods = new HashSet<>();
-                for (MethodInfo methodInfo : classInfo.getMethodInfo()) {
-                    if (methodInfo.hasAnnotation(TestInfo.class.getName())) {
-                        String methodKey = methodInfo.getName();
-                        if (!processedMethods.contains(methodKey)) {
-                            TestInfo annotation = extractMethodAnnotation(classInfo, methodInfo);
-                            if (annotation != null) {
-                                records.add(new TestInfoRecord(
-                                        className,
-                                        methodInfo.getName(),
-                                        annotation.type(),
-                                        annotation.team(),
-                                        annotation.criticality(),
-                                        arrayToString(annotation.tags())
-                                ));
-                                processedMethods.add(methodKey);
-                            }
-                        }
+                // Apply package filter if provided
+                if (packageFilter != null && !className.startsWith(packageFilter)) {
+                    continue;
+                }
+
+                // Check if this class has annotation through inheritance
+                try {
+                    Class<?> clazz = Class.forName(className);
+                    if (clazz.getAnnotation(TestInfo.class) != null) {
+                        processClass(classInfo, records, processedClasses);
                     }
+                } catch (ClassNotFoundException e) {
+                    // Silently ignore
                 }
             }
         }
 
         return records;
+    }
+
+    /**
+     * Process a single class and extract all @TestInfo annotations.
+     */
+    private void processClass(ClassInfo classInfo, List<TestInfoRecord> records, Set<String> processedClasses) {
+        String className = classInfo.getName();
+        
+        // Avoid duplicate processing
+        if (processedClasses.contains(className)) {
+            return;
+        }
+        processedClasses.add(className);
+
+        // Check for class-level annotation (via reflection to get inherited annotation)
+        TestInfo classAnnotation = extractAnnotation(classInfo);
+        if (classAnnotation != null) {
+            records.add(new TestInfoRecord(
+                    className,
+                    "", // blank TEST_NAME for class-level
+                    classAnnotation.type(),
+                    classAnnotation.team(),
+                    classAnnotation.criticality(),
+                    arrayToString(classAnnotation.tags())
+            ));
+        }
+
+        // Check for method-level annotations (including inherited methods)
+        Set<String> processedMethods = new HashSet<>();
+        for (MethodInfo methodInfo : classInfo.getMethodInfo()) {
+            if (methodInfo.hasAnnotation(TestInfo.class.getName())) {
+                String methodKey = methodInfo.getName();
+                if (!processedMethods.contains(methodKey)) {
+                    TestInfo methodAnnotation = extractMethodAnnotation(classInfo, methodInfo);
+                    if (methodAnnotation != null) {
+                        records.add(new TestInfoRecord(
+                                className,
+                                methodInfo.getName(),
+                                methodAnnotation.type(),
+                                methodAnnotation.team(),
+                                methodAnnotation.criticality(),
+                                arrayToString(methodAnnotation.tags())
+                        ));
+                        processedMethods.add(methodKey);
+                    }
+                }
+            }
+        }
     }
 
     /**
