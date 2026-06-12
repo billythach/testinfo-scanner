@@ -41,8 +41,8 @@ public class CsvReportGeneratorTest {
 
         String content = Files.readString(outputFile, StandardCharsets.UTF_8);
         assertThat(content).contains("CLASS_NAME;TEST_NAME;TYPE;TEAM;CRITICALITY;TAGS");
-        assertThat(content).contains("com.example.Test1");
-        assertThat(content).contains("com.example.Test2;;INTEGRATION;TeamB;CRITICAL;tag3");
+        assertThat(content).contains("com.example.Test1;;UNIT;TeamA;HIGH;tag1,tag2");
+        assertThat(content).contains("com.example.Test2;testMethod;INTEGRATION;TeamB;CRITICAL;tag3");
     }
 
     @Test
