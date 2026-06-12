@@ -65,26 +65,13 @@ public class AnnotationScanner {
                     continue;
                 }
 
-                // Check for class-level annotation (declared directly on this class)
-                if (classInfo.getDeclaredAnnotationInfo(TestInfo.class.getName()) != null) {
+                // Check for class-level annotation
+                if (classInfo.hasAnnotation(TestInfo.class.getName())) {
                     TestInfo annotation = extractAnnotation(classInfo);
                     if (annotation != null) {
                         records.add(new TestInfoRecord(
                                 className,
                                 "", // blank TEST_NAME for class-level
-                                annotation.type(),
-                                annotation.team(),
-                                annotation.criticality(),
-                                arrayToString(annotation.tags())
-                        ));
-                    }
-                } else if (classInfo.hasAnnotation(TestInfo.class.getName())) {
-                    // Class inherits @TestInfo from a parent class
-                    TestInfo annotation = extractAnnotation(classInfo);
-                    if (annotation != null) {
-                        records.add(new TestInfoRecord(
-                                className,
-                                "", // blank TEST_NAME for inherited class-level
                                 annotation.type(),
                                 annotation.team(),
                                 annotation.criticality(),
@@ -127,12 +114,7 @@ public class AnnotationScanner {
     private TestInfo extractAnnotation(ClassInfo classInfo) {
         try {
             Class<?> clazz = Class.forName(classInfo.getName());
-            // getDeclaredAnnotation only gets direct annotations
-            TestInfo direct = clazz.getDeclaredAnnotation(TestInfo.class);
-            if (direct != null) {
-                return direct;
-            }
-            // Fall back to getAnnotation which checks parent classes
+            // getAnnotation checks the class and parent classes
             return clazz.getAnnotation(TestInfo.class);
         } catch (ClassNotFoundException e) {
             return null;
