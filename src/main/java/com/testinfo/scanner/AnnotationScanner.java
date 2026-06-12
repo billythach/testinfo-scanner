@@ -11,12 +11,20 @@ import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Scanner for discovering @TestInfo annotations on test classes and methods.
  * Uses ClassGraph to scan the classpath for annotated classes.
+ * 
+ * Supports:
+ * - Class-level annotations
+ * - Method-level annotations
+ * - Inherited annotations from parent classes
+ * - Package filtering
  */
 public class AnnotationScanner {
 
@@ -32,6 +40,7 @@ public class AnnotationScanner {
 
     /**
      * Discovers all @TestInfo annotations in the specified classpath and package filter.
+     * Handles class inheritance - annotations from parent classes are inherited by child classes.
      *
      * @param classpath Path to scan (typically target/test-classes)
      * @param packageFilter Optional package prefix filter (e.g., "com.example")
@@ -47,6 +56,7 @@ public class AnnotationScanner {
                 .enableAnnotationInfo()
                 .scan()) {
 
+            // Get all classes with @TestInfo annotation (includes inherited annotations)
             for (ClassInfo classInfo : scanResult.getClassesWithAnnotation(TestInfo.class.getName())) {
                 String className = classInfo.getName();
 
@@ -55,8 +65,8 @@ public class AnnotationScanner {
                     continue;
                 }
 
-                // Check for class-level annotation
-                if (classInfo.hasAnnotation(TestInfo.class.getName())) {
+                // Check for class-level annotation (declared directly on this class)
+                if (classInfo.getDeclaredAnnotationInfo(TestInfo.class.getName()) != null) {
                     TestInfo annotation = extractAnnotation(classInfo);
                     if (annotation != null) {
                         records.add(new TestInfoRecord(
@@ -68,21 +78,39 @@ public class AnnotationScanner {
                                 arrayToString(annotation.tags())
                         ));
                     }
+                } else if (classInfo.hasAnnotation(TestInfo.class.getName())) {
+                    // Class inherits @TestInfo from a parent class
+                    TestInfo annotation = extractAnnotation(classInfo);
+                    if (annotation != null) {
+                        records.add(new TestInfoRecord(
+                                className,
+                                "", // blank TEST_NAME for inherited class-level
+                                annotation.type(),
+                                annotation.team(),
+                                annotation.criticality(),
+                                arrayToString(annotation.tags())
+                        ));
+                    }
                 }
 
-                // Check for method-level annotations
+                // Check for method-level annotations (including inherited methods)
+                Set<String> processedMethods = new HashSet<>();
                 for (MethodInfo methodInfo : classInfo.getMethodInfo()) {
                     if (methodInfo.hasAnnotation(TestInfo.class.getName())) {
-                        TestInfo annotation = extractMethodAnnotation(classInfo, methodInfo);
-                        if (annotation != null) {
-                            records.add(new TestInfoRecord(
-                                    className,
-                                    methodInfo.getName(),
-                                    annotation.type(),
-                                    annotation.team(),
-                                    annotation.criticality(),
-                                    arrayToString(annotation.tags())
-                            ));
+                        String methodKey = methodInfo.getName();
+                        if (!processedMethods.contains(methodKey)) {
+                            TestInfo annotation = extractMethodAnnotation(classInfo, methodInfo);
+                            if (annotation != null) {
+                                records.add(new TestInfoRecord(
+                                        className,
+                                        methodInfo.getName(),
+                                        annotation.type(),
+                                        annotation.team(),
+                                        annotation.criticality(),
+                                        arrayToString(annotation.tags())
+                                ));
+                                processedMethods.add(methodKey);
+                            }
                         }
                     }
                 }
@@ -94,10 +122,17 @@ public class AnnotationScanner {
 
     /**
      * Extracts @TestInfo annotation from a class using reflection.
+     * Handles both directly declared and inherited annotations.
      */
     private TestInfo extractAnnotation(ClassInfo classInfo) {
         try {
             Class<?> clazz = Class.forName(classInfo.getName());
+            // getDeclaredAnnotation only gets direct annotations
+            TestInfo direct = clazz.getDeclaredAnnotation(TestInfo.class);
+            if (direct != null) {
+                return direct;
+            }
+            // Fall back to getAnnotation which checks parent classes
             return clazz.getAnnotation(TestInfo.class);
         } catch (ClassNotFoundException e) {
             return null;
@@ -106,12 +141,19 @@ public class AnnotationScanner {
 
     /**
      * Extracts @TestInfo annotation from a method using reflection.
+     * Handles both methods declared in the class and inherited methods.
      */
     private TestInfo extractMethodAnnotation(ClassInfo classInfo, MethodInfo methodInfo) {
         try {
             Class<?> clazz = Class.forName(classInfo.getName());
-            // Try to find the method (without parameter types for simplicity)
+            // Try to find the method in the class or its parents
             for (Method method : clazz.getDeclaredMethods()) {
+                if (method.getName().equals(methodInfo.getName())) {
+                    return method.getAnnotation(TestInfo.class);
+                }
+            }
+            // If not found in declared methods, try all methods (includes inherited)
+            for (Method method : clazz.getMethods()) {
                 if (method.getName().equals(methodInfo.getName())) {
                     return method.getAnnotation(TestInfo.class);
                 }
