@@ -1,3 +1,4 @@
+````markdown name=README.md
 # TestInfo Scanner
 
 A Maven-friendly project that scans custom `@TestInfo` annotations on test classes during Maven compilation and generates a CSV report summarizing all discovered test metadata.
@@ -10,6 +11,10 @@ A Maven-friendly project that scans custom `@TestInfo` annotations on test class
   - `criticality`: Criticality level (e.g., "CRITICAL", "HIGH", "MEDIUM", "LOW")
   - `tags`: Array of categorization tags
 - **Automatic Scanning**: Discovers both class-level and method-level annotations
+- **Inheritance Support**: Automatically detects and handles test class inheritance:
+  - Child classes inherit annotations from parent classes
+  - Child classes can override parent annotations with their own
+  - Inherited test methods are properly scanned and reported
 - **CSV Report Generation**: Produces a well-structured CSV file with columns:
   ```
   CLASS_NAME;TEST_NAME;TYPE;TEAM;CRITICALITY;TAGS
@@ -176,6 +181,74 @@ CSV output:
 com.example.ApiIntegrationTest;;INTEGRATION;API;HIGH;rest-api,authentication,v2
 ```
 
+## Inheritance Support
+
+The scanner fully supports test class inheritance. Child classes automatically inherit and report annotations from their parent classes.
+
+### Scenario 1: Child Class Inheriting Parent Annotation
+
+```java
+@TestInfo(type = "UNIT", team = "Core", criticality = "HIGH")
+public class BaseTestClass {
+    @Test
+    @TestInfo(type = "UNIT", team = "Core", criticality = "CRITICAL", tags = {"base-method"})
+    public void testBaseMethod() { }
+}
+
+// Child class inherits the @TestInfo annotation from parent
+public class InheritedTestClass extends BaseTestClass {
+    @Test
+    public void testChildMethod() { }
+}
+```
+
+CSV output:
+```
+com.example.BaseTestClass;;UNIT;Core;HIGH;
+com.example.BaseTestClass;testBaseMethod;UNIT;Core;CRITICAL;base-method
+com.example.InheritedTestClass;;UNIT;Core;HIGH;
+com.example.InheritedTestClass;testChildMethod;UNIT;Core;HIGH;
+com.example.InheritedTestClass;testBaseMethod;UNIT;Core;CRITICAL;base-method
+```
+
+**Note**: `InheritedTestClass` inherits the class-level `@TestInfo` annotation from `BaseTestClass`. Both its own methods and inherited methods from the parent are discovered.
+
+### Scenario 2: Child Class with Own Annotations
+
+```java
+@TestInfo(type = "UNIT", team = "Core", criticality = "HIGH")
+public class BaseTestClass {
+    @Test
+    @TestInfo(type = "UNIT", team = "Core", criticality = "CRITICAL", tags = {"base-method"})
+    public void testBaseMethod() { }
+}
+
+@TestInfo(type = "INTEGRATION", team = "Backend", criticality = "CRITICAL", tags = {"inherited-override"})
+public class InheritedTestWithOwnAnnotations extends BaseTestClass {
+    @Test
+    @TestInfo(type = "INTEGRATION", team = "Backend", criticality = "CRITICAL", tags = {"database"})
+    public void testDatabaseIntegration() { }
+}
+```
+
+CSV output:
+```
+com.example.BaseTestClass;;UNIT;Core;HIGH;
+com.example.BaseTestClass;testBaseMethod;UNIT;Core;CRITICAL;base-method
+com.example.InheritedTestWithOwnAnnotations;;INTEGRATION;Backend;CRITICAL;inherited-override
+com.example.InheritedTestWithOwnAnnotations;testBaseMethod;UNIT;Core;CRITICAL;base-method
+com.example.InheritedTestWithOwnAnnotations;testDatabaseIntegration;INTEGRATION;Backend;CRITICAL;database
+```
+
+**Note**: The child class has its own class-level `@TestInfo` annotation (INTEGRATION), while inherited methods still report their original annotations from the parent class.
+
+### How Inheritance Works
+
+1. **Class-Level Inheritance**: If a child class does not have its own `@TestInfo` annotation, it inherits the parent class's annotation.
+2. **Method-Level Inheritance**: Methods inherited from parent classes report with the annotations they were defined with.
+3. **Override Capability**: Child classes can override parent annotations by defining their own `@TestInfo` annotation.
+4. **No Duplication**: The scanner avoids reporting duplicate entries for the same class or method.
+
 ## Building from Source
 
 ```bash
@@ -188,12 +261,12 @@ mvn clean install
 
 ### AnnotationScanner
 
-The core scanner class for discovering annotations.
+The core scanner class for discovering annotations, including inherited ones.
 
 ```java
 AnnotationScanner scanner = new AnnotationScanner();
 
-// Scan all test classes
+// Scan all test classes (including inherited annotations)
 List<TestInfoRecord> records = scanner.discoverAnnotations(
     Paths.get("target/test-classes")
 );
@@ -229,8 +302,16 @@ The test suite includes:
 - Scanner discovery tests with sample annotated classes
 - CSV generation and format validation tests
 - Record model tests
+- **Inheritance tests**:
+  - Base class with annotations
+  - Child class inheriting from annotated parent
+  - Child class with its own annotations
+  - Discovery of inherited methods and classes
 
-Sample annotated test classes are included in `src/test/java/com/testinfo/annotation/samples/`.
+Sample annotated test classes are included in `src/test/java/com/testinfo/annotation/samples/`:
+- `BaseTestClass` - Base class with @TestInfo annotation
+- `InheritedTestClass` - Child without own annotation, inherits from parent
+- `InheritedTestWithOwnAnnotations` - Child with own annotation
 
 ## Requirements
 
@@ -239,7 +320,7 @@ Sample annotated test classes are included in `src/test/java/com/testinfo/annota
 
 ## Dependencies
 
-- **ClassGraph** (4.8.157): Efficient classpath scanning
+- **ClassGraph** (4.8.157): Efficient classpath scanning with inheritance support
 - **Apache Commons CSV** (1.10.0): CSV file generation
 - **JUnit 5** (5.9.2): Testing framework
 - **AssertJ** (3.24.1): Fluent assertions
@@ -259,3 +340,4 @@ MIT License - see LICENSE file for details
 ## Support
 
 For issues, questions, or suggestions, please open a GitHub issue.
+````
